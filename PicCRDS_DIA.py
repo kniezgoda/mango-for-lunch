@@ -2,15 +2,16 @@
 
 '''
 PicCRDS_DIA: Picarro Cavity Ring-down Spectrometer Data Identifier Algorithm
-Version 1.1 bug fixes and updates: 
-    Added ability to not use drift-correction by leaving drift correction standard empty
-    Added ability to not use calibration by not choosing any calibration method and leaving the file blank
-    Renamed _aggreagtion to _details (planning on adding more details to this file in the future)
-    Removed a lot of global variables, opting to reference class instances instead
-    Fixed problem with NaN EPOCH_TIME values when files had empty rows at the end
+Version 1.2 bug fixes and updates: 
+    -Added auto-fill capabilities to event descriptors. Now empty event descriptor entries
+    will be given the value of the most recent event descriptor entry.
+    -Added grid lines to the graph for easier time referencing
+    -Changed default number of gridlines to 16
+    -Added ability to increase or decrease the number of gridlines
+    on the graph in order to easier determine timing of events if need be
+    -Added date info to _analysis output file
 
-
-Finished October 23, 2015
+Finished October 30, 2015
 Author: Kyle Niezgoda
 kniezgoda@ntu.edu.sg (work)
 kniezgo@gmail.com (personal)
@@ -442,33 +443,33 @@ class FigureWidget:
         self.FigureRoot.destroy()
     
 class LabelWidget:
-    global num, col
+    global num, col, numticks, t
     def __init__(self, parent):
         self.Label_Root = parent
         self.Label_Root.title("Enter event descriptors")
         self.textbox_list = [] #holds identifiers for individual text boxes
         self.answer_list = pd.DataFrame({'color_group' : pd.Series(color_list), 'event' : pd.Series(repeat('event', len(color_list)))})
 
-        self.Top_Label_Root = Frame(self.Label_Root)
-        self.Top_Label_Root.grid(row=0,column=0)
-        self.Bottom_Label_Root = Frame(self.Label_Root)
-        self.Bottom_Label_Root.grid(row=1,column=0)
+        self.Top_Label_Root = Frame(self.Label_Root,borderwidth=2,relief=GROOVE)
+        self.Top_Label_Root.grid(row=0,column=0,padx=3,pady=3)
+        self.Bottom_Label_Root = Frame(self.Label_Root,borderwidth=2,relief=GROOVE)
+        self.Bottom_Label_Root.grid(row=1,column=0,padx=3,pady=3)
 
         #labels for the colors going across the top row
-        self.redbutton = Button(self.Top_Label_Root,text='red',command=lambda: self.TriggerPlot(COL='red',NUM=num),width=4)
+        self.redbutton = Button(self.Top_Label_Root,text='red',command=lambda: self.TriggerPlot(COL='red',NUM=num,T=first.fo,NT=numticks),width=4)
         self.redbutton.grid(row=0, column=1, sticky=S, pady=2)
-        self.bluebutton = Button(self.Top_Label_Root,text='blue',command=lambda: self.TriggerPlot(COL='blue',NUM=num),width=5)
+        self.bluebutton = Button(self.Top_Label_Root,text='blue',command=lambda: self.TriggerPlot(COL='blue',NUM=num,T=first.fo,NT=numticks),width=5)
         self.bluebutton.grid(row=0, column=2, sticky=S, pady=2)
-        self.greenbutton = Button(self.Top_Label_Root,text='green',command=lambda: self.TriggerPlot(COL='green',NUM=num),width=6)
+        self.greenbutton = Button(self.Top_Label_Root,text='green',command=lambda: self.TriggerPlot(COL='green',NUM=num,T=first.fo,NT=numticks),width=6)
         self.greenbutton.grid(row=0, column=3, sticky=S, pady=2)
-        self.brownbutton = Button(self.Top_Label_Root,text='brown',command=lambda: self.TriggerPlot(COL='brown',NUM=num),width=6)
+        self.brownbutton = Button(self.Top_Label_Root,text='brown',command=lambda: self.TriggerPlot(COL='brown',NUM=num,T=first.fo,NT=numticks),width=6)
         self.brownbutton.grid(row=0, column=4, sticky=S, pady=2)
 
         #print the numbers vertically in column 0
         num_colorgroups = int(ceil(len(color_list)/4.0))+1
         button_list = []
         for I in range(1,num_colorgroups):
-            Button(self.Top_Label_Root,text=I,command=lambda I=I: self.TriggerPlot(COL=col,NUM=I),width=2).grid(row=I, column=0, sticky=E, padx=2)
+            Button(self.Top_Label_Root,text=I,command=lambda I=I: self.TriggerPlot(COL=col,NUM=I,T=first.fo,NT=numticks),width=2).grid(row=I, column=0, sticky=E, padx=2)
 
         #print text boxes for entry in the matrix
         for i in range(0,len(color_list)):
@@ -476,25 +477,32 @@ class LabelWidget:
             self.textbox_list[i].bind("<Tab>", self.focus_next_window)
             self.textbox_list[i].grid(row=int(floor((i/4)+1)),column=(int(i%4)+1))
 
-        #create reference water label and entry widget for drift correction
-        self.ref_label = Label(self.Bottom_Label_Root,text='Reference standard for drift correction:')
-        self.ref_label.grid(row=1,column=0,sticky='NESW')
-        self.ref_entry = Text(self.Bottom_Label_Root,height=1,width=25,borderwidth=2,relief=SUNKEN)
-        self.ref_entry.grid(row=1,column=1,sticky='NESW')
         #create enter button for the Label_Root
-        self.highliteall_button = Button(self.Bottom_Label_Root, text='Highlight all', command=lambda: self.TriggerPlot(highlight='all'), width=18)
+        self.highliteall_button = Button(self.Bottom_Label_Root, text='Highlight all', command=lambda: self.TriggerPlot(HL='all',T=first.fo,NT=numticks), width=18)
         self.highliteall_button.grid(row=0, column=0,sticky=E,padx=2)
-        self.removehighlites_button = Button(self.Bottom_Label_Root, text='Remove all highlights', command=lambda: self.TriggerPlot(), width=18)
+        self.removehighlites_button = Button(self.Bottom_Label_Root, text='Remove all highlights', command=lambda: self.TriggerPlot(T=first.fo,NT=numticks), width=18)
         self.removehighlites_button.grid(row=0,column=1,sticky=W,padx=2)
 
+        #create increase and decrease grid lines buttons
+        self.increasegridlines_button = Button(self.Bottom_Label_Root, text='Increase gridlines', command=lambda: self.TriggerPlot(NUM=num,COL=col,T=first.fo,NT=numticks+5), width=18)
+        self.increasegridlines_button.grid(row=1, column=0,sticky=E,padx=2)
+        self.decreasegridlines_button = Button(self.Bottom_Label_Root, text='Decrease gridlines', command=lambda: self.TriggerPlot(NUM=num,COL=col,T=first.fo,NT=numticks-5), width=18)
+        self.decreasegridlines_button.grid(row=1, column=1,sticky=W,padx=2)
+
+        #create reference water label and entry widget for drift correction
+        self.ref_label = Label(self.Bottom_Label_Root,text='Reference standard for drift correction:')
+        self.ref_label.grid(row=2,column=0,sticky='NESW')
+        self.ref_entry = Text(self.Bottom_Label_Root,height=1,width=25,borderwidth=2,relief=SUNKEN)
+        self.ref_entry.grid(row=2,column=1,sticky='NESW')
+        
         self.enter_button = Button(self.Bottom_Label_Root, text='OK', command=self.Frame2_LabelEntry, width=5)
-        self.enter_button.grid(row=2, column=0,sticky=E,padx=2,pady=10)  
+        self.enter_button.grid(row=3, column=0,sticky=E,padx=2,pady=10)  
         self.quit_button = Button(self.Bottom_Label_Root, text='Quit', command=sys.exit, width=5)
-        self.quit_button.grid(row=2,column=1,sticky=W,padx=2,pady=10)
+        self.quit_button.grid(row=3,column=1,sticky=W,padx=2,pady=10)
     
-    def TriggerPlot(self,highlight=None,NUM=0,COL=''):
+    def TriggerPlot(self,HL=None,NUM=0,COL='',NT=16,T=''):
         #creates a new f
-        CreateFigure(highlight=highlight,NUMBER=NUM,COLOR=COL)
+        CreateFigure(HIGHLIGHT=HL,NUMBER=NUM,COLOR=COL,NUMTICKS=NT,TITLE=T)
         #updates the figure widget with the new f
         figure.UpdatePlot(f)
     
@@ -504,7 +512,10 @@ class LabelWidget:
     
     def Frame2_LabelEntry(self):
         for i in range(len(self.answer_list['event'])):
-            self.answer_list['event'][i] = self.textbox_list[i].get("1.0",'end-1c')
+            textbox_list_entry = self.textbox_list[i].get("1.0",'end-1c')
+            if textbox_list_entry == '':
+                textbox_list_entry = self.answer_list['event'][i-1]
+            self.answer_list['event'][i] = textbox_list_entry
         self.drift_entry = self.ref_entry.get("1.0", 'end-1c')
         self.drift_bool = True
         if self.drift_entry == '':
@@ -516,10 +527,12 @@ class LabelWidget:
 #following method modifies global variable f to represent the figure you intend to show
 #use global variable f when creating an instance of FigureWidget to tell the instance what image to display
 #also can use the class method FigureWidget.UpdatePlot(f) to change the figure on the widget
-def CreateFigure(highlight=None, COLOR='', NUMBER=0, title=''):
-    global a,f,num,col,color_list
+def CreateFigure(HIGHLIGHT=None, COLOR='', NUMBER=0, TITLE='', NUMTICKS=16):
+    global a,f,num,col,color_list,numticks,t
     num=NUMBER
     col=COLOR
+    numticks=NUMTICKS
+    t=TITLE
     f = plt.Figure()
     a = f.add_subplot(111)
     color_list = []
@@ -532,7 +545,7 @@ def CreateFigure(highlight=None, COLOR='', NUMBER=0, title=''):
             hold = data_inc_avg[data_inc_avg['group'] == i]
 
             #plot all highlighted and thickened
-            if highlight is 'all':
+            if HIGHLIGHT is 'all':
                 if i % 4 == 1:
                     a.plot(hold['index'], hold['dD'], linewidth = 4.5, color = 'red')
                     s='red '+str(int((round(i/4))+1))
@@ -713,17 +726,18 @@ def CreateFigure(highlight=None, COLOR='', NUMBER=0, title=''):
                         color_list.append(s)
                         continue
 
-    by = len(data_inc_avg.index)/10 # 9 (10-1) time tick marks on graph
-    at = [x*by for x in range(1, 10)]
+    by = len(data_inc_avg.index)/numticks 
+    at = [x*by for x in range(1, (numticks+1))]
     l = []
     for i in at:
         l.append(data_inc_avg['time'][i])
 
     a.set_xticks(at, minor=False)
-    a.set_xticklabels(l, fontdict=None, minor=False)
+    a.set_xticklabels(l, fontdict=None, minor=False, rotation=45)
     a.set_xlabel('time')
     a.set_ylabel('uncalibrated delta deuterium')
-    a.set_title(title)
+    a.set_title(t)
+    a.grid(which='major')
 
 
 
@@ -784,12 +798,13 @@ master_data = master_data[np.isfinite(master_data['EPOCH_TIME'])]
 #add time to the master data using the epoch time column
 master_data['seconds'] = map(lambda e: int(time.strftime('%S', time.localtime(e))), master_data['EPOCH_TIME'])
 master_data['hourminutes'] = map(lambda e: time.strftime('%H:%M', time.localtime(e)), master_data['EPOCH_TIME'])
+master_data['date'] = map(lambda e: time.strftime('%d/%m/%Y', time.localtime(e)), master_data['EPOCH_TIME'])
 
 nrows = len(master_data.axes[0])
 ncols = len(master_data.axes[1])
 delta_18O = master_data['Delta_18_16']
 
-data_inc_avg = pd.DataFrame({'time' : pd.Series([NaN]), 'd18O' : pd.Series([NaN]), 'dD' : pd.Series([NaN]), 'H2O' : pd.Series([NaN])})
+data_inc_avg = pd.DataFrame({'date' : pd.Series([NaN]), 'time' : pd.Series([NaN]), 'd18O' : pd.Series([NaN]), 'dD' : pd.Series([NaN]), 'H2O' : pd.Series([NaN])})
 #if first.useavgby is true, avg by avgby
 if first.avgby_bool:
     for i in range(0, nrows-1):
@@ -804,7 +819,8 @@ if first.avgby_bool:
         elif s % first.avgby == 0:
             #case for if we are at the last row
             if i == nrows - 1:
-                temp = pd.DataFrame({'time' : pd.Series([master_data['hourminutes'][i]]),
+                temp = pd.DataFrame({'date' : pd.Series([master_data['date'][i]]),
+                    'time' : pd.Series([master_data['hourminutes'][i]]),
                     'd18O' : pd.Series([master_data['Delta_18_16'][start:i].mean()]), 
                     'dD' : pd.Series([master_data['Delta_D_H'][start:i].mean()]),
                     'H2O' : pd.Series([master_data['H2O'][start:i].mean()])})
@@ -817,7 +833,8 @@ if first.avgby_bool:
                 continue
             #case if the next line is not 0 mod avgby
             if s_next % first.avgby != 0:
-                temp = pd.DataFrame({'time' : pd.Series([master_data['hourminutes'][start]]),
+                temp = pd.DataFrame({'date' : pd.Series([master_data['date'][start]]),
+                    'time' : pd.Series([master_data['hourminutes'][start]]),
                     'd18O' : pd.Series([master_data['Delta_18_16'][start:i].mean()]), 
                     'dD' : pd.Series([master_data['Delta_D_H'][start:i].mean()]),
                     'H2O' : pd.Series([master_data['H2O'][start:i].mean()])})
@@ -829,7 +846,8 @@ if first.avgby_bool:
     data_inc_avg['index'] = list(range(1, len(data_inc_avg.axes[0])+1))
 #if label.useavgby is false, then just use the master data as data_inc_avg
 else:
-    data_inc_avg = data_inc_avg.append(pd.DataFrame({'time' : pd.Series(master_data['hourminutes']), \
+    data_inc_avg = data_inc_avg.append(pd.DataFrame({'date' : pd.Series([master_data['date']]), \
+        'time' : pd.Series(master_data['hourminutes']), \
         'd18O' : pd.Series(master_data['Delta_18_16']), \
         'dD' : pd.Series(master_data['Delta_D_H']), \
         'H2O' : pd.Series(master_data['H2O'])}), ignore_index = True)
@@ -899,8 +917,8 @@ for i in data_inc_avg['group']:
 data_inc_avg['col_group'] = col_group
 
 #create the initial figure with no highlights or thickens
-#this sets the initial value for f
-CreateFigure(title = first.fo)
+#this sets the initial value for f, col, num, t, and numticks
+CreateFigure(TITLE=first.fo, COLOR='', NUMBER=0, NUMTICKS=16)
 
 #creates the label widget
 #these two widgets are canceled by buttons inside the widgets
@@ -921,7 +939,7 @@ print out the LMWL and time series plot, drift correct and calibrate the data,
 and the export the new data to a csv file in the working directory
 '''
 #prints out the time series plot
-CreateFigure(highlight='all', title = first.fo)
+CreateFigure(HIGHLIGHT='all', TITLE = first.fo)
 c=FigureCanvas(f)
 c.print_figure(first.dir_+first.fo+'.pdf')
 
