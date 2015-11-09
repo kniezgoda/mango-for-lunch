@@ -2,8 +2,15 @@
 
 '''
 PicCRDS_DIA: Picarro Cavity Ring-down Spectrometer Data Identifier Algorithm
-Version 1.0
-Finished September 17, 2015
+Version 1.1 bug fixes and updates: 
+    Added ability to not use drift-correction by leaving drift correction standard empty
+    Added ability to not use calibration by not choosing any calibration method and leaving the file blank
+    Renamed _aggreagtion to _details (planning on adding more details to this file in the future)
+    Removed a lot of global variables, opting to reference class instances instead
+    Fixed problem with NaN EPOCH_TIME values when files had empty rows at the end
+
+
+Finished October 23, 2015
 Author: Kyle Niezgoda
 kniezgoda@ntu.edu.sg (work)
 kniezgo@gmail.com (personal)
@@ -24,22 +31,20 @@ accesses Windows Tcl/Tk software is distrupting some of the printing procedures 
 Windows users are encouraged to install Python version 2.x in order to use this software. 
 
 
-Data files from the CRDS must be exported to csv.
-See the SOP word document for more info on how to properly 
-export data from the CRDS so that this program can use it.
+Data files from the CRDS may be in .dat or .csv format.
 
 Please first consult the SOP word file for help with code errors.
 If this fails, please contact me (Kyle Niezgoda) at kniezgoda@ntu.edu.sg
 '''
 
-import matplotlib, sys, re, os
+#define python version
+import sys, re, os
 if sys.version_info[0] < 3:
     vers=2
-    print("Using python version 2.x")
 else:
     vers=3
-    print("Using python version 3.x")
 
+import matplotlib
 matplotlib.use('TkAgg')
 import pandas as pd
 import numpy as np
@@ -59,6 +64,11 @@ from os.path import expanduser
 from math import *
 from scipy import stats
 import time
+
+if vers==2:
+    print("Using python version 2.x")
+if vers==3:
+    print("Using python version 3.x")
 
 home=os.path.expanduser("~")
 std_data = ''
@@ -200,15 +210,14 @@ class FirstWidget:
 
     ###instructions for clicking the CD button
     def OnCdButtonClick(self):
-        global dir_
         global cd_label
         self.cd_label.grid_forget()
         ###user enters new directory
-        dir_=filedialog.askdirectory()+'/'
-        if dir_ != '':
-            os.chdir(dir_)
+        self.dir_=filedialog.askdirectory()+'/'
+        if self.dir_ != '':
+            os.chdir(self.dir_)
             self.cd_label.delete(1.0, END)
-            self.cd_label.insert(END, dir_)
+            self.cd_label.insert(END, self.dir_)
         else:
             self.cd_label.delete(1.0, END)
             self.cd_label.insert(END, os.getcwd())
@@ -307,13 +316,16 @@ class FirstWidget:
 
     ###instructions on clicking the run button:
     def run(self):  
-        global fo, std_data, use
+        global fo, std_data
         #set the name for the output file and the standard data
-        fo=self.fileout_text.get(1.0,END)[:-1]
+        self.fo=self.fileout_text.get(1.0,END)[:-1]
         if std_data == '':
+            if self.standard_method.get() == '':
+                self.calibrate_bool = False
             if self.standard_method.get() == 'man':
-                None
+                self.calibrate_bool = True
             if self.standard_method.get() == 'def':
+                self.calibrate_bool = True
                 #if the default text file does not exist yet print an error and exit the program
                 if not os.path.isfile(home+'/.default_standard_data_PICARROALG.txt'):
                     print('ERROR: Default file ~/.default_standard_data_PICARROALG.txt does not exist \n \
@@ -333,37 +345,33 @@ class FirstWidget:
         
         #set how many files will be used
         if not self.filechoose_text3.get("1.0",'end-1c').split(" ")[0] == "Input":
-            use=2
+            self.use=2
         elif not self.filechoose_text2.get("1.0",'end-1c').split(" ")[0] == "Input":
-            use=1
+            self.use=1
         else:
-            use=0
+            self.use=0
 
         #determine whether or not data will be averaged
-        global useavgby
-        useavgby = self.use_avgby.get()
-        if useavgby == 1:
-            useavgby = False
+        self.avgby_bool = self.use_avgby.get()
+        if self.avgby_bool == 1:
+            self.avgby_bool = False
         else:
-            useavgby = True
-        print(useavgby)
+            self.avgby_bool = True
+        print(self.avgby_bool)
 
         #set file input name, avgby value, memory effect value, and start hour
         filename=self.filechoose_text1.get("1.0",'end-1c')
         if filename.split(" ")[0] == 'Input':
             print('Please select at least one file')
         else:
-            global fi
-            if use==0:
-                fi=[fi1]
-            if use==1:
-                fi=[fi1, fi2]
-            if use==2:
-                fi=[fi1, fi2, fi3]
-            global avgby
-            avgby=self.avgby_scale.get()
-            global memeffval
-            memeffval=self.memeffval_scale.get()
+            if self.use==0:
+                self.fi=[fi1]
+            if self.use==1:
+                self.fi=[fi1, fi2]
+            if self.use==2:
+                self.fi=[fi1, fi2, fi3]
+            self.avgby=self.avgby_scale.get()
+            self.memeffval=self.memeffval_scale.get()
             # global starthour
             # starthour=self.timediff_scale.get()
 
@@ -438,9 +446,8 @@ class LabelWidget:
     def __init__(self, parent):
         self.Label_Root = parent
         self.Label_Root.title("Enter event descriptors")
-        global textbox_list, answer_list
-        textbox_list = [] #holds identifiers for individual text boxes
-        answer_list = pd.DataFrame({'color_group' : pd.Series(color_list), 'event' : pd.Series(repeat('event', len(color_list)))})
+        self.textbox_list = [] #holds identifiers for individual text boxes
+        self.answer_list = pd.DataFrame({'color_group' : pd.Series(color_list), 'event' : pd.Series(repeat('event', len(color_list)))})
 
         self.Top_Label_Root = Frame(self.Label_Root)
         self.Top_Label_Root.grid(row=0,column=0)
@@ -465,9 +472,9 @@ class LabelWidget:
 
         #print text boxes for entry in the matrix
         for i in range(0,len(color_list)):
-            textbox_list.append(Text(self.Top_Label_Root,height=1,width=25,borderwidth=2,relief=SUNKEN))
-            textbox_list[i].bind("<Tab>", self.focus_next_window)
-            textbox_list[i].grid(row=int(floor((i/4)+1)),column=(int(i%4)+1))
+            self.textbox_list.append(Text(self.Top_Label_Root,height=1,width=25,borderwidth=2,relief=SUNKEN))
+            self.textbox_list[i].bind("<Tab>", self.focus_next_window)
+            self.textbox_list[i].grid(row=int(floor((i/4)+1)),column=(int(i%4)+1))
 
         #create reference water label and entry widget for drift correction
         self.ref_label = Label(self.Bottom_Label_Root,text='Reference standard for drift correction:')
@@ -496,20 +503,20 @@ class LabelWidget:
         return('break')
     
     def Frame2_LabelEntry(self):
-        global answer_list
-        global ref_entry
-        for i in range(len(answer_list['event'])):
-            answer_list['event'][i] = textbox_list[i].get("1.0",'end-1c')
-        ref_entry = self.ref_entry.get("1.0", 'end-1c')
+        for i in range(len(self.answer_list['event'])):
+            self.answer_list['event'][i] = self.textbox_list[i].get("1.0",'end-1c')
+        self.drift_entry = self.ref_entry.get("1.0", 'end-1c')
+        self.drift_bool = True
+        if self.drift_entry == '':
+            self.drift_bool = False
         figure.destroy()
         self.Label_Root.destroy()
-
 
 ###GLOBAL METHODS
 #following method modifies global variable f to represent the figure you intend to show
 #use global variable f when creating an instance of FigureWidget to tell the instance what image to display
 #also can use the class method FigureWidget.UpdatePlot(f) to change the figure on the widget
-def CreateFigure(highlight=None, COLOR='', NUMBER=0):
+def CreateFigure(highlight=None, COLOR='', NUMBER=0, title=''):
     global a,f,num,col,color_list
     num=NUMBER
     col=COLOR
@@ -716,7 +723,7 @@ def CreateFigure(highlight=None, COLOR='', NUMBER=0):
     a.set_xticklabels(l, fontdict=None, minor=False)
     a.set_xlabel('time')
     a.set_ylabel('uncalibrated delta deuterium')
-    a.set_title(fo)
+    a.set_title(title)
 
 
 
@@ -749,10 +756,10 @@ else:
 
 
 #Prepare the data
-print('Averaging by: %d' % avgby)
-print('Memory Effect Value: %d' % float(memeffval))
-print('Running Program on: %s' % fi)
-print('Files named '+fo+' will be written out to '+dir_)
+print('Averaging by: %d' % first.avgby)
+print('Memory Effect Value: %d' % float(first.memeffval))
+print('Running Program on: %s' % first.fi)
+print('Files named '+first.fo+' will be written out to '+first.dir_)
 global data_inc_avg
 os.chdir(home)
 
@@ -760,7 +767,7 @@ print("Preparing data...")
 
 ###read in the data
 frames = []
-for f in fi:
+for f in first.fi:
     filetype= f.split(".")
     if filetype[len(filetype)-1] == 'dat':
         temp = pd.read_csv(f, delim_whitespace=True)
@@ -771,6 +778,8 @@ for f in fi:
         sys.exit()
     frames.append(temp)
 master_data = pd.concat(frames, ignore_index=True)
+#removes empty rows at the end of the file
+master_data = master_data[np.isfinite(master_data['EPOCH_TIME'])]
 
 #add time to the master data using the epoch time column
 master_data['seconds'] = map(lambda e: int(time.strftime('%S', time.localtime(e))), master_data['EPOCH_TIME'])
@@ -781,8 +790,8 @@ ncols = len(master_data.axes[1])
 delta_18O = master_data['Delta_18_16']
 
 data_inc_avg = pd.DataFrame({'time' : pd.Series([NaN]), 'd18O' : pd.Series([NaN]), 'dD' : pd.Series([NaN]), 'H2O' : pd.Series([NaN])})
-#if useavgby is true, avg by avgby
-if useavgby:
+#if first.useavgby is true, avg by avgby
+if first.avgby_bool:
     for i in range(0, nrows-1):
         if i == 0:
             start = i
@@ -790,9 +799,9 @@ if useavgby:
         #find what second we are at in the current iteration of the for loop    
         s = master_data['seconds'][i]
         #if we are at a seconds value equal to 0 mod avgby, average the preceding rows
-        if s % avgby != 0:
+        if s % first.avgby != 0:
             continue
-        elif s % avgby == 0:
+        elif s % first.avgby == 0:
             #case for if we are at the last row
             if i == nrows - 1:
                 temp = pd.DataFrame({'time' : pd.Series([master_data['hourminutes'][i]]),
@@ -801,13 +810,13 @@ if useavgby:
                     'H2O' : pd.Series([master_data['H2O'][start:i].mean()])})
                 data_inc_avg = data_inc_avg.append(temp, ignore_index = True)
                 break
-            eptime_next = round(master_data['EPOCH_TIME'][i+1])
-            s_next = int(time.strftime('%S', time.localtime(eptime_next)))
+
+            s_next = master_data['seconds'][i+1]
             #case for if the next line is also 0 mod avgby
-            if s_next % avgby == 0:
+            if s_next % first.avgby == 0:
                 continue
             #case if the next line is not 0 mod avgby
-            if s_next % avgby != 0:
+            if s_next % first.avgby != 0:
                 temp = pd.DataFrame({'time' : pd.Series([master_data['hourminutes'][start]]),
                     'd18O' : pd.Series([master_data['Delta_18_16'][start:i].mean()]), 
                     'dD' : pd.Series([master_data['Delta_D_H'][start:i].mean()]),
@@ -818,7 +827,7 @@ if useavgby:
     #delete the first row of NaN's
     data_inc_avg = data_inc_avg.ix[1:]
     data_inc_avg['index'] = list(range(1, len(data_inc_avg.axes[0])+1))
-#if useavgby is false, then just use the master data as data_inc_avg
+#if label.useavgby is false, then just use the master data as data_inc_avg
 else:
     data_inc_avg = data_inc_avg.append(pd.DataFrame({'time' : pd.Series(master_data['hourminutes']), \
         'd18O' : pd.Series(master_data['Delta_18_16']), \
@@ -832,7 +841,7 @@ mem_series = ['']
 for i in data_inc_avg['index']:
     if i == 1:
         continue
-    if abs(data_inc_avg['dD'][i] - data_inc_avg['dD'][i-1]) > memeffval:
+    if abs(data_inc_avg['dD'][i] - data_inc_avg['dD'][i-1]) > first.memeffval:
         mem_series.append('mem')
     else:
         mem_series.append('')
@@ -844,7 +853,7 @@ for i in data_inc_avg['index']:
         continue
     if (data_inc_avg['event'][i] == 'mem') and \
     (data_inc_avg['event'][i-2] == 'mem') and \
-    (abs(data_inc_avg['dD'][i] - data_inc_avg['dD'][i-1]) > (memeffval - .15)):
+    (abs(data_inc_avg['dD'][i] - data_inc_avg['dD'][i-1]) > (first.memeffval - .15)):
         data_inc_avg['event'][i-1] = 'mem'
         continue
 
@@ -872,6 +881,7 @@ for i in data_inc_avg['index']:
             continue
 data_inc_avg['group'] = group
 max_group = max(data_inc_avg['group'])
+
 #add col_group for later matching
 col_group = []
 for i in data_inc_avg['group']:
@@ -890,7 +900,7 @@ data_inc_avg['col_group'] = col_group
 
 #create the initial figure with no highlights or thickens
 #this sets the initial value for f
-CreateFigure()
+CreateFigure(title = first.fo)
 
 #creates the label widget
 #these two widgets are canceled by buttons inside the widgets
@@ -911,9 +921,9 @@ print out the LMWL and time series plot, drift correct and calibrate the data,
 and the export the new data to a csv file in the working directory
 '''
 #prints out the time series plot
-CreateFigure(highlight='all')
+CreateFigure(highlight='all', title = first.fo)
 c=FigureCanvas(f)
-c.print_figure(dir_+fo+'.pdf')
+c.print_figure(first.dir_+first.fo+'.pdf')
 
 event = []
 for i in data_inc_avg['col_group']:
@@ -922,57 +932,68 @@ for i in data_inc_avg['col_group']:
         continue
     if i != 'mem':
         if vers == 2:
-            event.append(str([answer_list['event'][j] for j in range(len(answer_list['color_group'])) if answer_list['color_group'][j] == i])[3:-2])
+            event.append(str([label.answer_list['event'][j] for j in range(len(label.answer_list['color_group'])) if label.answer_list['color_group'][j] == i])[3:-2])
         elif vers == 3:
-            event.append(str([answer_list['event'][j] for j in range(len(answer_list['color_group'])) if answer_list['color_group'][j] == i])[2:-2])
+            event.append(str([label.answer_list['event'][j] for j in range(len(label.answer_list['color_group'])) if label.answer_list['color_group'][j] == i])[2:-2])
 data_inc_avg['event'] = event
 
-###Drift Correction
-###keep only reference water data
-drift_data = data_inc_avg[data_inc_avg['event'] == ref_entry]
-###get rid of the first and last 10 minutes
-drift_data = drift_data[21:-20]
-###keep the remaining first and last 10% of the data
-keep = int(max(drift_data['index'])*.1)
-keep_d18O = [np.mean(drift_data['d18O'][0:keep]), np.mean(drift_data['d18O'][-keep:max(drift_data['index'])])]
-keep_dD = [np.mean(drift_data['dD'][0:keep]), np.mean(drift_data['dD'][-keep:max(drift_data['index'])])]
-drift_d18O = (keep_d18O[1]-keep_d18O[0])/max(drift_data['index'])
-drift_dD = (keep_dD[1]-keep_dD[0])/max(drift_data['index'])
-data_inc_avg['drift_corrected_d18O'] = np.add([i*drift_d18O for i in range(len(data_inc_avg['d18O']))], data_inc_avg['d18O'])
-data_inc_avg['drift_corrected_dD'] = np.add([i*drift_dD for i in range(len(data_inc_avg['dD']))], data_inc_avg['dD'])
+if label.drift_bool:
+    ###Drift Correction
+    ###keep only reference water data
+    drift_data = data_inc_avg[data_inc_avg['event'] == label.drift_entry]
+    ###get rid of the first and last 10 minutes
+    drift_data = drift_data[21:-20]
+    ###keep the remaining first and last 10% of the data
+    keep = int(max(drift_data['index'])*.1)
+    keep_d18O = [np.mean(drift_data['d18O'][0:keep]), np.mean(drift_data['d18O'][-keep:max(drift_data['index'])])]
+    keep_dD = [np.mean(drift_data['dD'][0:keep]), np.mean(drift_data['dD'][-keep:max(drift_data['index'])])]
+    drift_d18O = (keep_d18O[1]-keep_d18O[0])/max(drift_data['index'])
+    drift_dD = (keep_dD[1]-keep_dD[0])/max(drift_data['index'])
+    data_inc_avg['drift_corrected_d18O'] = np.add([i*drift_d18O for i in range(len(data_inc_avg['d18O']))], data_inc_avg['d18O'])
+    data_inc_avg['drift_corrected_dD'] = np.add([i*drift_dD for i in range(len(data_inc_avg['dD']))], data_inc_avg['dD'])
+else:
+    #these columns will be removed before the data is printed out
+    #they need to be in for the time being so that the data works with the following sections
+    data_inc_avg['drift_corrected_d18O'] = data_inc_avg['d18O']
+    data_inc_avg['drift_corrected_dD'] = data_inc_avg['dD']
 
-# data_inc_avg.to_csv(home+'/Python/files/data_inc_avg.csv')
-# sys.exit()
+if first.calibrate_bool:
+    ###Calibration
+    grouped = data_inc_avg.groupby('event', as_index = False)
+    # event_means = data_inc_avg.groupby('event', as_index = False).mean()
+    event_means = grouped.agg(np.mean)
+    # event_stddev = data_inc_avg.groupby('event', as_index = False).std()
+    measured_stds = event_means[event_means['event'].isin(std['standard'])]
+    real_d18O = []
+    real_dD = []
+    for i in measured_stds['event']:
+        real_d18O.append(float(std['real.d18O'][std['standard']==i]))
+        real_dD.append(float(std['real.D_H'][std['standard']==i]))
+    ###compute linear regression stats
+    d18O_calibration_plot = plt.plot(measured_stds['drift_corrected_d18O'], real_d18O)
+    dD_calibration_plot = plt.plot(measured_stds['drift_corrected_dD'], real_dD)
+    slope_d18O, intercept_d18O, r_value_d18O, p_value_d18O, std_err_d18O = stats.linregress(measured_stds['drift_corrected_d18O'], real_d18O)
+    slope_dD, intercept_dD, r_value_dD, p_value_dD, std_err_dD = stats.linregress(measured_stds['drift_corrected_dD'], real_dD)
+    ###predict calculated values using the linear regression info
+    data_inc_avg['calculated_d18O'] = [slope_d18O*x + intercept_d18O for x in data_inc_avg['drift_corrected_d18O']]
+    data_inc_avg['calculated_dD'] = [slope_dD*x + intercept_dD for x in data_inc_avg['drift_corrected_dD']]
+else:
+    #these will be deleted later, but need to be included for now
+    data_inc_avg['calculated_d18O'] = data_inc_avg['d18O']
+    data_inc_avg['calculated_dD'] = data_inc_avg['dD']
 
-###Calibration
-grouped = data_inc_avg.groupby('event', as_index = False)
-# event_means = data_inc_avg.groupby('event', as_index = False).mean()
-event_means = grouped.agg(np.mean)
-# event_stddev = data_inc_avg.groupby('event', as_index = False).std()
-measured_stds = event_means[event_means['event'].isin(std['standard'])]
-real_d18O = []
-real_dD = []
-for i in measured_stds['event']:
-    real_d18O.append(float(std['real.d18O'][std['standard']==i]))
-    real_dD.append(float(std['real.D_H'][std['standard']==i]))
-###compute linear regression stats
-d18O_calibration_plot = plt.plot(measured_stds['drift_corrected_d18O'], real_d18O)
-dD_calibration_plot = plt.plot(measured_stds['drift_corrected_dD'], real_dD)
-slope_d18O, intercept_d18O, r_value_d18O, p_value_d18O, std_err_d18O = stats.linregress(measured_stds['drift_corrected_d18O'], real_d18O)
-slope_dD, intercept_dD, r_value_dD, p_value_dD, std_err_dD = stats.linregress(measured_stds['drift_corrected_dD'], real_dD)
-###predict calculated values using the linear regression info
-data_inc_avg['calculated_d18O'] = [slope_d18O*x + intercept_d18O for x in data_inc_avg['drift_corrected_d18O']]
-data_inc_avg['calculated_dD'] = [slope_dD*x + intercept_dD for x in data_inc_avg['drift_corrected_dD']]
-
-###Plotting LMWL and writing data
+#clears the figure of all graphs
 plt.cla()
 plt.clf()
-#first plot the LMWL data
+
+#function that checks a vector for 'rain' entries
 def checkForRain(inputString):
     return bool(re.search('rain', inputString))
 d = data_inc_avg    
+#check for rain
 keep = list(map(checkForRain, d['event']))
 keep = [i for i in range(len(keep)) if keep[i]]
+#if there is rain, print the LMWL
 if len(keep) > 0:
     keep = d.iloc[keep,:]
     x = keep['calculated_d18O']
@@ -983,11 +1004,22 @@ if len(keep) > 0:
     plt.plot(x, y_hat, '-')
     plt.ylabel('delta deuterium')
     plt.xlabel('delta 18O')
-    plt.title(fo)
-    plt.savefig(dir_+fo+'_LMWL.pdf')
+    plt.title(first.fo)
+    plt.savefig(first.dir_+first.fo+'_LMWL.pdf')
+
+#correct the data based on drift_bool and calibrate_bool
+if not label.drift_bool:
+    data_inc_avg = data_inc_avg.drop('drift_corrected_d18O', 1)
+    data_inc_avg = data_inc_avg.drop('drift_corrected_dD', 1)
+if not first.calibrate_bool:
+    data_inc_avg = data_inc_avg.drop('calculated_d18O', 1)
+    data_inc_avg = data_inc_avg.drop('calculated_dD', 1)
+
 #write out the data
-data_inc_avg.to_csv(dir_+fo+'_analysis.csv')
+data_inc_avg.to_csv(first.dir_+first.fo+'_analysis.csv')
 
 ###compute averages and standard deviations for all non-mem events
-iso_aggs = grouped['d18O', 'dD'].agg([np.mean, np.std]) 
-iso_aggs.to_csv(dir_+fo+'_aggregation.csv')
+iso_aggs = grouped['calculated_d18O', 'calculated_dD'].agg([np.mean, np.std]) 
+iso_aggs.to_csv(first.dir_+first.fo+'_details.csv')
+
+sys.exit()
